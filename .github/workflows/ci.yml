@@ -25,5 +25,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Check kimi-swarm-pro-hook.js syntax
-        run: node --check hooks/kimi-swarm-pro-hook.js
+      - name: Check kimi-fleet-hook.js syntax
+        run: node --check hooks/kimi-fleet-hook.js

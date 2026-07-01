@@ -12,7 +12,7 @@ Thanks for your interest in improving kimi-swarm-pro!
    - Backup `~/.kimi-code/config.toml` before editing it.
 4. **Test in a clean environment**:
    - Run `./install.sh` in a fresh shell.
-   - Run `./uninstall.sh` and verify no `kimi-swarm-pro-hook.js` remains in `config.toml`.
+   - Run `./uninstall.sh` and verify no `kimi-fleet-hook.js` remains in `config.toml`.
 5. **Update docs**: If you change behavior, update `README.md` and `CHANGELOG.md`.
 6. **Submit a pull request** with a clear description and test notes.
 

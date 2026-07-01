@@ -1,9 +1,9 @@
 ---
-name: "kimi-swarm-pro"
-description: "Dual-mode multi-model swarm/fleet for Kimi CLI. /swarm = native lightweight swarm (auto task-split, no config). /fleet = full interactive multi-model configuration (provider select, model select, role assign, concurrency, launch). The hook only intercepts /fleet; /swarm passes through to Kimi's native Swarm Mode."
+name: "kimi-fleet"
+description: "Dual-mode multi-model swarm/fleet for Kimi CLI. /swarm = native lightweight swarm (auto task-split, no config). /fleet = full interactive multi-model configuration (provider select, model select, role assign, concurrency, launch). /fleet loads this skill; /swarm passes through to Kimi's native Swarm Mode."
 ---
 
-# Kimi Swarm Pro — Dual-Mode Multi-Model Collaboration
+# Kimi Fleet — Dual-Mode Multi-Model Collaboration
 
 > **Requirements**: Kimi Code CLI 0.20+ with at least 2 models configured in `~/.kimi-code/config.toml`.
 
@@ -11,8 +11,8 @@ description: "Dual-mode multi-model swarm/fleet for Kimi CLI. /swarm = native li
 
 | Command | Behavior | Interceptor | When to use |
 |---|---|---|---|
-| `/swarm [task]` | **Native swarm** — passes through to Kimi's built-in Swarm Mode. Auto task-split, auto subagent launch, no model selection, minimal friction. | **NOT intercepted** by kimi-swarm-pro-hook.js | Default. Use this 90% of the time. |
-| `/fleet [task]` | **Full interactive config** — 8-step flow: confirm → providers → models → roles → instructions → concurrency → launch → synthesize. Each subagent uses a user-specified model. | **Intercepted** by kimi-swarm-pro-hook.js | When you want explicit control over which model plays which role. |
+| `/swarm [task]` | **Native swarm** — passes through to Kimi's built-in Swarm Mode. Auto task-split, auto subagent launch, no model selection, minimal friction. | **NOT intercepted** by kimi-fleet-hook.js | Default. Use this 90% of the time. |
+| `/fleet [task]` | **Full interactive config** — 8-step flow: confirm → providers → models → roles → instructions → concurrency → launch → synthesize. Each subagent uses a user-specified model. | **Handled by the `kimi-fleet` skill** (hook intercepts multi-role natural language as a fallback) | When you want explicit control over which model plays which role. |
 
 ### Why two modes?
 
@@ -30,7 +30,7 @@ Think of it as: `/swarm` = quick raid, `/fleet` = organized fleet formation.
 /swarm [task description]
 ```
 
-**What happens**: The kimi-swarm-pro-hook.js does **not** intercept this command. Kimi's native Swarm Mode activates normally — the agent reads the task, decomposes it into subtasks, launches `AgentSwarm`, and synthesizes results. No model selection, no role assignment, no interactive Q&A.
+**What happens**: The kimi-fleet-hook.js does **not** intercept this command. Kimi's native Swarm Mode activates normally — the agent reads the task, decomposes it into subtasks, launches `AgentSwarm`, and synthesizes results. No model selection, no role assignment, no interactive Q&A.
 
 **When to use**:
 - You want speed and simplicity.
@@ -52,7 +52,7 @@ In those cases, use `/fleet`.
 /fleet [task description]
 ```
 
-**What happens**: The kimi-swarm-pro-hook.js intercepts this command and injects a CRITICAL OVERRIDE instruction that forces the agent into the 8-step interactive flow before launching any subagents.
+**What happens**: The `kimi-fleet` skill handles this command and loads the full interactive configuration flow. The kimi-fleet-hook.js may also intercept multi-role natural language prompts as a fallback and inject a CRITICAL OVERRIDE instruction that forces the agent into the 8-step interactive flow before launching any subagents.
 
 ### CRITICAL: Always Ask Before Launching
 

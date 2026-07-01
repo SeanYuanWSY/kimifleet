@@ -1,19 +1,19 @@
 {
   "name": "kimi-swarm-pro",
-  "version": "0.3.0",
-  "description": "Dual-mode multi-model swarm/fleet for Kimi Code CLI",
+  "version": "0.4.0",
+  "description": "Dual-mode multi-model swarm/fleet for Kimi Code CLI — installs the kimi-fleet skill",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/SeanYuanWSY/kimi-swarm-pro.git"
   },
   "author": "SeanYuanWSY",
-  "keywords": ["kimi-code", "kimi-swarm-pro", "fleet", "swarm", "multi-model", "cli", "skill"],
+  "keywords": ["kimi-code", "kimi-fleet", "fleet", "swarm", "multi-model", "cli", "skill"],
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
     "lint:sh": "shellcheck install.sh uninstall.sh",
-    "lint:js": "eslint hooks/kimi-swarm-pro-hook.js || true"
+    "lint:js": "eslint hooks/kimi-fleet-hook.js || true"
   }
 }

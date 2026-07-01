@@ -4,29 +4,19 @@
 "use strict";
 
 /**
- * Kimi Code UserPromptSubmit hook — kimi-swarm-pro interceptor.
+ * Kimi Code UserPromptSubmit hook — kimi-fleet interceptor.
  *
- * Dual-mode design:
- *   /swarm           → NOT intercepted. Passes through to Kimi's native
- *                     Swarm Mode (lightweight, auto task-split, no model
- *                     selection). The agent just does its normal swarm thing.
- *   /fleet           → Intercepts and injects the full 8-step interactive
- *                     configuration flow (provider select → model select →
- *                     role assign → custom instructions → concurrency → launch).
+ * /fleet is now handled by the kimi-fleet skill command. This hook only
+ * intercepts natural-language multi-role prompts (e.g. "前端模型负责X")
+ * as a fallback, so the user can trigger the fleet flow without typing /fleet.
  *
- * This hook ONLY intercepts /fleet. /swarm is left untouched so the
- * user gets native Kimi swarm behavior by default.
+ * /swarm is left untouched so the user gets native Kimi Swarm Mode behavior.
  * Registered in ~/.kimi-code/config.toml under [[hooks]].
  */
 
 const fs = require("fs");
 
 // --- Trigger detection ---
-
-/** Detect /fleet command (the full interactive configuration mode) */
-function isFleetCommand(prompt) {
-  return /^\s*\/fleet\b/iu.test(prompt);
-}
 
 /** Detect multi-role language patterns that suggest the user wants multi-model collaboration */
 function isMultiRolePrompt(prompt) {
@@ -43,7 +33,7 @@ function isMultiRolePrompt(prompt) {
 
 /** Detect if the user explicitly wants the full interactive configuration flow */
 function shouldIntercept(prompt) {
-  return isFleetCommand(prompt) || isMultiRolePrompt(prompt);
+  return isMultiRolePrompt(prompt);
 }
 
 // --- Payload reading (same pattern as supermemory-recall.js) ---
@@ -53,7 +43,7 @@ function readPayload() {
     const raw = fs.readFileSync(0, "utf8");
     return raw.trim() ? JSON.parse(raw) : {};
   } catch (err) {
-    console.error("kimi-swarm-pro-hook.js: parse error:", err.message);
+    console.error("kimi-fleet-hook.js: parse error:", err.message);
     return {};
   }
 }
@@ -101,16 +91,16 @@ function exitSilent() {
 
 // --- Main ---
 
-const FLEET_INSTRUCTION = `[KIMI-SWARM-PRO INTERCEPT — CRITICAL OVERRIDE]
+const FLEET_INSTRUCTION = `[KIMI-FLEET INTERCEPT — CRITICAL OVERRIDE]
 
-The user typed /fleet, which means they want the FULL interactive multi-model configuration flow.
+The user described a task with multiple model roles (e.g. "前端模型负责X"), which means they want the FULL interactive multi-model configuration flow.
 
 **You MUST NOT auto-launch AgentSwarm or start any subagents yet.**
 
 **Before doing ANY work, you MUST follow these steps IN ORDER:**
 
 ### Step 1: Confirm the task
-Restate the task in one sentence (strip the /fleet prefix). Ask the user via AskUserQuestion:
+Restate the task in one sentence. Ask the user via AskUserQuestion:
 "我要为以下任务启动多模型协作：[task]。是否继续？"
 Options: "继续，让我选模型" / "不用多模型，直接做"
 
@@ -161,9 +151,9 @@ If no limits set, launch all items at once via AgentSwarm.
 
 ### Step 8: Synthesize all subagent outputs into a final report.
 
-**This instruction OVERRIDES any built-in Swarm Mode auto-launch behavior. The interactive model selection is the core feature of /fleet — skipping it defeats the entire purpose.**
+**This instruction OVERRIDES any built-in Swarm Mode auto-launch behavior. The interactive model selection is the core feature — skipping it defeats the entire purpose.**
 
-Read the full skill documentation at ~/.agents/skills/kimi-swarm-pro/SKILL.md for role system prompts, model calling patterns, and output format.`;
+Read the full skill documentation at ~/.agents/skills/kimi-fleet/SKILL.md for role system prompts, model calling patterns, and output format.`;
 
 function main() {
   const payload = readPayload();

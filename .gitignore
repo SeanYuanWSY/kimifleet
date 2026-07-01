@@ -18,7 +18,7 @@ node_modules/
 
 # Installer backups
 *.bak
-*.kimi-swarm-pro.bak.*
+*.kimi-fleet.bak.*
 
 # Test artifacts
 test-output/

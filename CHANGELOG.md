@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2025-07-01
+
+### Changed
+- Installed skill renamed from `kimi-swarm-pro` to `kimi-fleet`.
+- Hook renamed from `kimi-swarm-pro-hook.js` to `kimi-fleet-hook.js`.
+- `/fleet` is now handled by the `kimi-fleet` skill command instead of hook interception.
+- Hook now only intercepts multi-role natural language prompts as a fallback.
+- Updated all install/uninstall paths and markers.
+
 ## [0.3.0] - 2025-07-01
 
 ### Changed
