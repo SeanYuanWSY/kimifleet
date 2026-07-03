@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-07-03
+
+### Security
+- **High (mktemp trap cleanup)**: SKILL.md API model calling examples used `mktemp` for API key header files and payload files without trap cleanup. If the script received SIGINT/SIGTERM between `mktemp` and `rm -f`, temporary files containing API keys would leak on disk. Added `trap 'rm -f "$HEADER_FILE" "$PAYLOAD_FILE"' EXIT INT TERM` after every `mktemp` pair. (Fixes P1 issue found in audit.)
+- **Medium (Ollama prompt via argv)**: Ollama model calling passed the prompt as a command-line argument (`exec "ollama","run",$ENV{MODEL},$ENV{PROMPT}`), making the prompt text visible to `ps`. Changed to stdin-based passing via Perl pipe (`open my $fh, "|-:unbuffered", "ollama", "run", $ENV{MODEL}`). (Fixes P1 issue.)
+- **Medium (Pre-Flight Check timeout)**: Pre-Flight Model Check's `ollama run` had no timeout, potentially hanging forever if the remote service was unreachable. Added `alarm 30` via Perl. (Fixes P2 issue.)
+
+### Fixed
+- **Critical (| delimiter in AgentSwarm items)**: SKILL.md used `{model_id}|{role}|{system_instruction}|{task_description}` as the AgentSwarm item format, but `system_instruction` and `task_description` can contain `|` characters from user input, causing `split("|")` to produce wrong field alignment. Removed the `|`-delimited format entirely — Step 6 now embeds parsed fields directly into the prompt template, and subagents no longer need to `split` the item. (Fixes P0 issue.)
+- **Critical (install.sh idempotency — orphan hook entries)**: install.sh only checked for the `# kimi-fleet-hook` marker comment to detect existing installations. If a previous install had created the `[[hooks]]` block without the marker (e.g. from an older script version), re-running install.sh would create a duplicate registration. Added Python-based orphan detection that scans for any `[[hooks]]` block referencing `kimi-fleet-hook.js` regardless of marker presence. (Fixes P0 issue.)
+- **Critical (uninstall.sh missed orphan hook entries)**: uninstall.sh's Python state machine only entered hook-block removal when a `# kimi-fleet-hook` marker preceded the `[[hooks]]` line. An unmarked entry from an older installation was left behind, causing the config to reference a non-existent hook script. Removed the `skip_marker` state — the state machine now enters hook-block processing on every `[[hooks]]` line and discards any that reference `kimi-fleet-hook.js`, whether or not a marker is present. The outer shell guard also updated from `grep -qF` (fixed string) to `grep -q` (substring) to detect unmarked entries. (Fixes P0 issue.)
+- **High (missing plan mode check)**: Step 1 had no check for `agent_mode=plan` (read-only mode). A user in plan mode would walk through the entire 8-step interactive flow only to have AgentSwarm fail on Step 7. Added **Step 0: Plan Mode Check** that stops early if the session is read-only. (Fixes P1 issue.)
+- **High (missing model count < 2 check)**: SKILL.md said "at least 2 models" in the requirements, but no runtime check existed. If the user had only 1 model, the fleet flow would proceed pointlessly. Added a Model Count Pre-Check after Step 0 that checks the total model count and suggests `/swarm` if fewer than 2 models are available. (Fixes P1 issue.)
+- **Medium (Pre-Fight :cloud suffix inconsistency)**: Pre-Flight Check unconditionally appended `:cloud` to ollama model names, while the model calling logic was conditional (skipping if the name already contained `:`). Made Pre-Flight's suffix logic match the model calling logic. (Fixes P2 issue.)
+- **Medium (kimi-code managed model calling ambiguous)**: The kimi-code model section told subagents to "use your own reasoning if the session runs on a kimi-code model" without specifying API details. Added explicit instructions: key path (`providers.managed:kimi-code.api_key`), base_url (`providers.managed:kimi-code.base_url`), model parameter format, and a clear fallback strategy. (Fixes P2 issue.)
+- **Medium (Step 4 role selection non-deterministic)**: Step 4 allowed agents to "pick the 4 most relevant roles" from 6, making behavior unpredictable. Fixed to a single deterministic strategy: split 6 roles + Other into two questions (frontend/backend/review/research and cheap-task/synthesize/Other). (Fixes P2 issue.)
+- **Low (CJK detection incomplete)**: `isMultiRolePrompt()`'s `cjkAssign` pattern only matched `模型负责`, missing `模型做`, `模型来处理`, and `模型承担`. Expanded the regex to `/(模型负责|模型做|模型来处理|模型承担)/iu`. (Fixes P2 issue.)
+- **Low (0-model providers in selection list)**: Provider selection showed providers with 0 models as selectable options. Step 2 now excludes 0-model providers from the selection list. (Fixes P3 issue.)
+- **Low (empty model selection not handled)**: If the user viewed all model batches but selected none, the workflow would proceed with an empty model list. Added handling: ask the user whether to abandon fleet or reselect. (Fixes P3 issue.)
+- **Low (Python tomllib fallback missing)**: The hook's embedded Python script hardcoded `import tomllib` (Python 3.11+). Added try/except fallback to `import tomli as tomllib` for Python < 3.11 systems with the `tomli` backport installed. (Fixes P3 issue.)
+
+### Verified
+- 25-regression hook detection test: all scenarios pass including 3 new CJK patterns, 20 original regression cases, and 2 edge cases.
+- Install/uninstall round-trip: clean install → idempotent re-run → uninstall → clean reinstall → verify marker-based registration.
+- Orphan hook entry detection confirmed: install.sh correctly detects unmarked entries and skips duplication.
+- Uninstall with enhanced state machine confirmed: removes both marked and unmarked hook entries.
+- Node syntax check: hooks/kimi-fleet-hook.js passes without errors.
+- Installed hook MD5 matches repo source.
+
 ## [0.6.0] - 2026-07-02
 
 ### Fixed

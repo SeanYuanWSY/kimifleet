@@ -91,25 +91,42 @@ fi
 
 MARKER="# kimi-fleet-hook"
 if grep -qF "$MARKER" "$CONFIG" 2>/dev/null; then
-  warn "Hook already registered in config.toml, skipping"
+  warn "Hook already registered in config.toml (found marker), skipping"
 else
-  # Backup config only when we are about to modify it
-  if [ -s "$CONFIG" ]; then
-    BACKUP="$CONFIG.kimi-fleet.bak.$(date +%s)"
-    cp "$CONFIG" "$BACKUP"
-    info "Backed up config.toml → $BACKUP"
-  fi
+  # Extra check: orphan hook entry that references kimi-fleet-hook.js without a marker
+  ORPHAN_CHECK=$(python3 -c "
+import sys, os, re
+path = '$CONFIG'
+if not os.path.exists(path): sys.exit(1)
+with open(path) as f:
+    content = f.read()
+if re.search(r'\[\[hooks\]\].*?kimi-fleet-hook', content, re.DOTALL):
+    sys.exit(0)
+else:
+    sys.exit(1)
+" 2>/dev/null && echo "found" || echo "not_found")
 
-  # Use marker for idempotency; quote the path in case HOME contains spaces
-  {
-    echo ""
-    echo "$MARKER"
-    echo "[[hooks]]"
-    echo 'event = "UserPromptSubmit"'
-    echo "command = \"node '$KIMI_DIR/scripts/kimi-fleet-hook.js'\""
-    echo 'timeout = 5'
-  } >> "$CONFIG"
-  info "Registered hook in config.toml"
+  if [ "$ORPHAN_CHECK" = "found" ]; then
+    warn "Hook already registered in config.toml (no marker found, but hook entry exists), skipping"
+  else
+    # Backup config only when we are about to modify it
+    if [ -s "$CONFIG" ]; then
+      BACKUP="$CONFIG.kimi-fleet.bak.$(date +%s)"
+      cp "$CONFIG" "$BACKUP"
+      info "Backed up config.toml → $BACKUP"
+    fi
+
+    # Use marker for idempotency; quote the path in case HOME contains spaces
+    {
+      echo ""
+      echo "$MARKER"
+      echo "[[hooks]]"
+      echo 'event = "UserPromptSubmit"'
+      echo "command = \"node '$KIMI_DIR/scripts/kimi-fleet-hook.js'\""
+      echo 'timeout = 5'
+    } >> "$CONFIG"
+    info "Registered hook in config.toml"
+  fi
 fi
 
 echo ""

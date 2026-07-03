@@ -69,14 +69,14 @@ fi
 
 # Step 4: Remove hook registration from config.toml
 if [ -f "$CONFIG" ]; then
-  if grep -qF "# kimi-fleet-hook" "$CONFIG" 2>/dev/null; then
+  if grep -q "kimi-fleet-hook" "$CONFIG" 2>/dev/null; then
     # Backup config before mutation
     BACKUP="$CONFIG.kimi-fleet.bak.$(date +%s)"
     cp "$CONFIG" "$BACKUP"
     info "Backed up config.toml → $BACKUP"
 
-    # Use a state-machine Python script to safely remove the [[hooks]] block
-    # Match by the marker line and command field, not by substring on any line
+    # Use a state-machine Python script to safely remove [[hooks]] blocks
+    # that reference kimi-fleet-hook.js, with or without a marker comment
     python3 - "$CONFIG" <<'PYEOF'
 import sys, re
 
@@ -92,26 +92,27 @@ command_re = re.compile(r'^\s*command\s*=\s*["\'].*kimi-fleet-hook\.js.*["\']\s*
 out, buf = [], []
 in_hook = False
 discard = False
-skip_marker = False
 
 for line in lines:
     stripped = line.strip()
+
     if marker_re.match(stripped):
-        # Skip the marker line; it belongs to the kimi-fleet hook block
-        skip_marker = True
+        # Skip the marker line entirely (it belongs to the kimi-fleet hook)
         continue
-    if skip_marker and hook_start.match(stripped):
-        # This is the hook block that follows the marker
-        skip_marker = False
+
+    if hook_start.match(stripped):
+        # Flush previous hook block if not discarded
         if in_hook and not discard:
             out.extend(buf)
+        # Start tracking a new hook block
         buf = [line]
         in_hook = True
         discard = False
         continue
-    skip_marker = False
+
     if in_hook:
         if stripped.startswith('[') and not hook_start.match(stripped):
+            # A new section begins — end of current hook block
             if not discard:
                 out.extend(buf)
             buf, in_hook = [], False
@@ -121,6 +122,7 @@ for line in lines:
         if command_re.match(stripped):
             discard = True
         continue
+
     out.append(line)
 
 if in_hook and not discard:

@@ -101,6 +101,12 @@ The #2 fleet bug is the agent showing models that do NOT exist in the user's con
 
 ### The 8-Step Workflow
 
+#### Step 0: Plan Mode Check
+
+Before proceeding, check whether the current session is in plan mode (read-only mode). If the agent is in plan mode, AgentSwarm is unavailable because it requires executing tool calls (Bash, etc.) to launch subagents.
+
+> "当前处于 plan mode（只读模式），AgentSwarm 不可用。请先退出 plan mode 后重试 `/fleet`。"
+
 #### Step 1: Confirm the Task
 
 Restate the task in one sentence (strip the `/fleet` prefix) and ask:
@@ -108,6 +114,19 @@ Restate the task in one sentence (strip the `/fleet` prefix) and ask:
 > "我要为以下任务启动多模型协作：[task]。是否继续？"
 
 Use `AskUserQuestion` with a single yes/no-style question (or continue with default).
+
+##### Model Count Pre-Check
+
+After confirming the task, check the total number of available models:
+
+- If the hook injected a model list, count the total models from that list.
+- If the hook did NOT inject a model list (fallback), parse `~/.kimi-code/config.toml` and count all `[models."..."]` entries.
+
+If the total number of models is **less than 2**, inform the user:
+
+> "当前配置的模型不足 2 个（共 {N} 个），多模型协作需要至少 2 个模型。建议使用 `/swarm` 进行单模型群聊，或先在 `~/.kimi-code/config.toml` 中配置更多模型。"
+
+Then ask if they want to proceed with the available {N} model(s) anyway (as a reduced fleet) or cancel.
 
 #### Step 2: Get ALL Available Models
 
@@ -142,6 +161,7 @@ Multi-stage flow:
    - The user CAN select multiple providers at once (e.g. both `ollama-cloud` and `managed:kimi-code`).
    - Use the providers from the injected model list (or from your config.toml parse). **Do NOT hardcode provider names** — the list is dynamically generated from the user's actual config.
    - **⚠️ TOP BUG #3 — MISSING PROVIDERS**: Just like truncating the model list is the #1 bug, **silently omitting providers** is the #3 bug. If the config has 8 providers, ALL 8 must appear as options — do not group them, do not filter out "uninteresting" ones, do not skip `managed:kimi-code` or providers without many models. The user decides which to browse; you do not pre-filter.
+   - **Exception — 0-model providers**: If a provider has **zero models** associated with it (no `[models."..."]` entries under that provider), exclude it from the provider list entirely. There is no point offering a provider with no selectable models.
    - If there are **5+ providers**, one question (4 slots) is not enough. Split into two questions in the same call: question 1 = providers 1-4, question 2 = providers 5-N. Both questions use `multi_select=true`.
    - **Concrete example — 8 providers**: `question 1` has 4 options (provider1, provider2, provider3, provider4), `question 2` has 4 options (provider5, provider6, provider7, provider8). Both questions appear in the same `AskUserQuestion` call, both with `multi_select=true`.
 
@@ -193,6 +213,18 @@ Use `AskUserQuestion` with `multi_select=true` on every question so the user can
 6. Call 3: show models 33-40 — "模型选择 (第 3/3 批，最后一批)"
 7. User says "够了" → stop, proceed to Step 4 with the 3 selected models
 
+##### Empty Selection Handling
+
+After all batches are shown (or the user stops early), if the user selected **zero models**, ask:
+
+> "你没有选择任何模型。是否放弃本次任务？"
+
+Options:
+- "放弃" — cancel /fleet, fall back to `/swarm` or abort.
+- "重新选择" — go back to Step 2 (provider selection) to pick again.
+
+If the user chooses "放弃", tell them to use `/swarm` for a single-model swarm instead.
+
 #### Step 4: Assign Roles AND Custom Instructions Per Model
 
 For each selected model, ask the user TWO things in one `AskUserQuestion` call:
@@ -210,7 +242,12 @@ Options (the system will auto-add "Other" for custom input):
 | `cheap-task` | Simple summarization, formatting, brainstorming | Speed over depth |
 | `synthesize` | Combine outputs from other agents into a final answer | Coherent integration |
 
-Since `AskUserQuestion` allows max 4 options per question, split the 6 roles + "Other" into two questions of 4 options each, OR pick the 4 most relevant roles for the current task and let "Other" cover the rest.
+Since `AskUserQuestion` allows max 4 options per question, **always** split the 6 roles + "Other" into **two fixed questions** in one call:
+
+- **Question A** (4 options): `frontend`, `backend`, `review`, `research`
+- **Question B** (4 options, with "Other" in slot 4): `cheap-task`, `synthesize`, `Other` (user can type a custom role), and one blank/hidden slot (AskUserQuestion will fill with "Other" on its own if needed — leave slot 4 empty or use a placeholder)
+
+This eliminates ambiguity: every model always sees the full role spectrum across two questions. Do NOT pick "the 4 most relevant roles" — that skips valid options the user may want.
 
 **⚠️ DISAMBIGUATION WARNING**: Different providers can offer models with the identical `display_name` (e.g. `ollama-cloud/glm-5.2` and `zai-coding-plan/glm-5.2` both display as "GLM-5.2"). If the hook flagged a `display_name` as a duplicate (see the `DUPLICATE DISPLAY NAMES DETECTED` note in the injected model list), or if you notice two selected models share a display_name, **always phrase the question as "display_name (provider)"** — e.g. "这个模型 GLM-5.2 (ollama-cloud) 担任什么角色？" — never use the bare display_name alone, or the user cannot tell which model the question refers to.
 
@@ -258,13 +295,13 @@ managed:kimi-code → unlimited
 
 #### Step 6: Build AgentSwarm Items (with batching if needed)
 
-Create one item per selected model in this format:
+Create one item per selected model. **Do NOT use any delimiter-separated format.** Instead, render the assignment as a plain readable sentence so the subagent can read it directly without parsing:
 
 ```
-"{model_id}|{role}|{custom_instruction_or_default}|{task_description}"
+"Your model is {model_id}. Your role is {role}. Your instruction is: {custom_instruction_or_default}. Your task is: {task_description}."
 ```
 
-**The third field (`custom_instruction_or_default`) must contain the full system prompt text, not just the role name.** If the user chose "使用角色默认指令", copy the corresponding text from the [Role System Prompts](#role-system-prompts) section below (e.g. the `frontend` default prompt). If the user provided a custom instruction, use that text verbatim. The subagent receives this field as-is and cannot look up role names by itself.
+**The instruction (`custom_instruction_or_default`) must contain the full system prompt text, not just the role name.** If the user chose "使用角色默认指令", copy the corresponding text from the [Role System Prompts](#role-system-prompts) section below (e.g. the `frontend` default prompt). If the user provided a custom instruction, use that text verbatim.
 
 **If no concurrency limits were set**, pass all items to AgentSwarm at once.
 
@@ -286,10 +323,11 @@ Create one item per selected model in this format:
 Example items:
 
 ```
-"ollama-cloud/deepseek-v4-flash|cheap-task|Summarize concisely with bullet points|Explain what a workshop is"
-"ollama-cloud/glm-5.2|frontend|Focus on aesthetics and component structure|Design a login page"
-"deepseek/deepseek-v4-pro|backend|Focus on API and database design|Design the backend for a login page"
-"ollama-cloud/minimax-m3|review|Critically review the frontend and backend proposals|Review the login page design"
+"Your model is ollama-cloud/deepseek-v4-flash. Your role is cheap-task. Your instruction is: Summarize concisely with bullet points. Your task is: Explain what a workshop is."
+"Your model is ollama-cloud/glm-5.2. Your role is frontend. Your instruction is: Focus on aesthetics and component structure. Your task is: Design a login page."
+"Your model is deepseek/deepseek-v4-pro. Your role is backend. Your instruction is: Focus on API and database design. Your task is: Design the backend for a login page."
+"Your model is ollama-cloud/minimax-m3. Your role is review. Your instruction is: Critically review the frontend and backend proposals. Your task is: Review the login page design."
+"Your model is ollama-cloud/kimi-k2.7-code. Your role is synthesize. Your instruction is: You are an integration specialist. Your task is: Combine all outputs into a final answer."
 ```
 
 #### Step 7: Run AgentSwarm
@@ -343,28 +381,24 @@ Use these as the default `custom_instruction_or_default` part of each item.
 Pass this as `prompt_template`:
 
 ````markdown
-You are a subagent in a multi-model fleet. Your specific assignment is encoded in `{{item}}`.
+You are a subagent in a multi-model fleet. Your specific assignment is provided in `{{item}}`. Read it directly — it tells you your model, role, instruction, and task in plain English. No parsing is needed.
 
-Parse `{{item}}` using the format:
+For example, `{{item}}` might read:
 ```
-{model_id}|{role}|{system_instruction}|{task_description}
+Your model is ollama-cloud/deepseek-v4-flash. Your role is cheap-task. Your instruction is: Summarize concisely. Your task is: Explain what a workshop is.
 ```
 
-For example, if `{{item}}` is:
-```
-ollama-cloud/deepseek-v4-flash|cheap-task|Summarize concisely|Explain what a workshop is
-```
-Then:
-- model_id = `ollama-cloud/deepseek-v4-flash`
-- role = `cheap-task`
-- system_instruction = `Summarize concisely`
-- task_description = `Explain what a workshop is`
+From this you know:
+- **model_id** = `ollama-cloud/deepseek-v4-flash` — the model you must call via Bash
+- **role** = `cheap-task` — your perspective/function in the fleet
+- **system_instruction** = `Summarize concisely` — how to approach the work
+- **task_description** = `Explain what a workshop is` — what to actually produce
 
 ## Your Job
 
-1. Follow the `system_instruction` for your role.
-2. Complete the `task_description`.
-3. Use the assigned `model_id` for the core reasoning by calling it through Bash (see "Calling Your Model" below).
+1. Follow the **system_instruction** for your role.
+2. Complete the **task_description**.
+3. Use the assigned **model_id** for the core reasoning by calling it through Bash (see "Calling Your Model" below).
 4. Return a structured report with these exact sections:
    - **Role**: your role
    - **Model**: the model_id you used
@@ -395,7 +429,12 @@ export MODEL
 export PROMPT="Your system instruction here. Task: your task description here."
 
 # Linux
-perl -e 'alarm 120; exec "ollama","run",$ENV{MODEL},$ENV{PROMPT}' 2>&1 | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g' | tr -d '\r'
+perl -e '
+  alarm 120;
+  open my $fh, "|-:unbuffered", "ollama", "run", $ENV{MODEL} or die;
+  print $fh $ENV{PROMPT};
+  close $fh;
+' 2>&1 | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g' | tr -d '\r'
 
 # macOS (if you installed coreutils)
 # gtimeout 120 ollama run "$MODEL" "$PROMPT" 2>&1 | perl -pe 's/\e\[[0-9;?]*[a-zA-Z]//g' | tr -d '\r'
@@ -428,6 +467,7 @@ printf 'Authorization: Bearer %s\n' "$API_KEY" > "$HEADER_FILE"
 
 # Generate JSON payload safely
 PAYLOAD_FILE=$(mktemp)
+trap 'rm -f "$HEADER_FILE" "$PAYLOAD_FILE"' EXIT INT TERM
 python3 - "$MODEL" "$PROMPT" <<'PY' > "$PAYLOAD_FILE"
 import sys, json
 model, prompt = sys.argv[1], sys.argv[2]
@@ -456,7 +496,15 @@ Adapt the URL and provider section (e.g. `providers.deepseek`, `providers.zai-co
 
 ### For kimi-code models
 
-These use the managed Kimi provider. If the current session already runs on a kimi-code model, you may use your own reasoning. Otherwise, treat it as a standard Kimi API call if credentials are available, using the same header-file pattern as above.
+These use the managed Kimi provider. API credentials (if configured) live under:
+
+- **API key**: `providers.managed:kimi-code.api_key` in `~/.kimi-code/config.toml`
+- **Base URL**: `providers.managed:kimi-code.base_url` in `~/.kimi-code/config.toml`
+- **Model parameter**: use the model_id as-is (e.g. `kimi-k2.7-code`). No suffix transformation is needed.
+
+Use the same header-file pattern as the deepseek example above: read the key from the TOML path `providers.managed:kimi-code`, write it to a `$(mktemp)` header file, construct the JSON payload in a separate temp file, and call the API via `curl -s -X POST "$BASE_URL/chat/completions" --header "@$HEADER_FILE" ...`.
+
+**If credentials are unavailable** (the key or base_url is missing from config.toml), fall back to using the current session's model for reasoning. In that case, note in the report that the assigned kimi-code model could not be called directly and the default model was used instead.
 
 ### If the model call fails
 
@@ -471,9 +519,15 @@ Return only the structured report. Do not include extra chatter.
 
 Before launching the fleet, do a quick availability check for any model that is not the current default model:
 
-1. If `model_id` starts with `ollama-cloud/`, run:
+1. If `model_id` starts with `ollama-cloud/`, extract the name after `ollama-cloud/` and append `:cloud` only if the name does not already contain `:`:
    ```bash
-   ollama run {model_name}:cloud "respond with OK" 2>&1 | grep -o "OK" | head -1
+   RAW_MODEL="{model_name}"
+   if echo "$RAW_MODEL" | grep -q ':'; then
+     MODEL="$RAW_MODEL"
+   else
+     MODEL="${RAW_MODEL}:cloud"
+   fi
+   perl -e 'alarm 30; exec "ollama","run",$ENV{MODEL},"respond with OK"' 2>&1 | grep -o "OK" | head -1
    ```
 2. If `model_id` starts with `deepseek/`, run a small curl call and check for a valid response.
 3. If a model fails, tell the user and ask whether to remove it or fall back to the current default model.

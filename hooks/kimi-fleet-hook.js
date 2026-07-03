@@ -32,7 +32,7 @@ const { execSync } = require("child_process");
 function isMultiRolePrompt(prompt) {
   // CJK patterns: do NOT use \b because word boundaries are undefined around CJK characters.
   const cjkRoles = /(前端模型|后端模型|审查模型|安全模型|性能模型|审美模型|研究模型)/iu;
-  const cjkAssign = /模型负责/iu;
+  const cjkAssign = /(模型负责|模型做|模型来处理|模型承担)/iu;
 
   // ASCII patterns: word boundaries are safe here.
   // NOTE: "review" and "research" are removed from English patterns because they are
@@ -74,7 +74,11 @@ function shouldIntercept(prompt) {
  */
 function parseModelsFromConfig() {
   const pyScript = `
-import tomllib, json, os, sys
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    import tomli as tomllib  # Python <3.11 fallback
+import json, os, sys
 path = os.path.expanduser("~/.kimi-code/config.toml")
 if not os.path.exists(path):
     print(json.dumps({"error": "config.toml not found"}))
